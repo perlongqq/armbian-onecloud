@@ -1,4 +1,4 @@
-name: CI
+name: 编译
 
 on:
   workflow_dispatch:
@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   prepare:
-    name: Prepare
+    name: 准备
     runs-on: ubuntu-22.04
     outputs:
       env: ${{ steps.get.outputs.env }}
@@ -48,7 +48,7 @@ jobs:
           EOF
           echo "env=$(cat $GITHUB_ENV | base64 -w 0)" >>$GITHUB_OUTPUT
 
-      - name: Show repositories information
+      - name: 显示仓库信息
         run: |
           C_RESET="\e[0m"
           C_BLACK="\e[30m"
@@ -92,7 +92,7 @@ jobs:
             )}
           EOF
 
-      - name: Generate release informations
+      - name: 生成发布信息
         run: |
           cat <<EOF | sed -E 's/^  //' | tee Release.md
             CI $(date -d "$TIME" +'%Y-%m-%d %H:%M:%S %Z(%:z)')
@@ -113,7 +113,7 @@ jobs:
           echo "NAME=$(head --line=1 Release.md)" >>$GITHUB_ENV
           tail --line=+2 Release.md >Body.md
 
-      - name: Create release
+      - name: 创建发布
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
@@ -132,7 +132,7 @@ jobs:
           - current
 
     steps:
-      - name: Import env
+      - name: 导入环境
         run: |
           echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>$GITHUB_ENV
 
@@ -155,7 +155,7 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Build
+      - name: 构建
         run: |
           # Don't update remote cache
           export GITHUB_ACTIONS=false
@@ -168,7 +168,7 @@ jobs:
               USE_CCACHE=no
           sudo chown $(id -u):$(id -g) -R output/
 
-      - name: Upload artifacts
+      - name: 上传文件
         uses: actions/upload-artifact@v4
         with:
           name: debs-${{ matrix.BRANCH }}
@@ -212,7 +212,7 @@ jobs:
             DESKTOP_APPGROUPS_SELECTED: ""
 
     steps:
-      - name: Import env
+      - name: 导入环境
         run: |
           echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>$GITHUB_ENV
 
@@ -235,13 +235,13 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Download debs
+      - name: 下载debs
         uses: actions/download-artifact@v4
         with:
           name: debs-${{ matrix.BRANCH }}
           path: output/debs/
 
-      - name: Build
+      - name: 构建
         run: |
           # Don't update remote cache
           export GITHUB_ACTIONS=false
@@ -264,7 +264,7 @@ jobs:
               COMPRESS_OUTPUTIMAGE=img
           sudo chown $(id -u):$(id -g) -R output/
 
-      - name: Install Dependents
+      - name: 安装依赖项
         run: |
           sudo apt install img2simg
 
@@ -272,7 +272,7 @@ jobs:
           curl -L -o ./AmlImg https://github.com/hzyitc/AmlImg/releases/download/$ver/AmlImg_${ver}_linux_amd64
           chmod +x ./AmlImg
 
-      - name: Download and unpack the latest u-boot
+      - name: 下载并解压最新的u-boot
         run: |
           echo "::group::Download"
           curl -L -o ./uboot.img https://github.com/${UBOOT_REPO}/releases/download/${UBOOT_TAG}/${UBOOT_BURNIMG}
@@ -282,7 +282,7 @@ jobs:
           ./AmlImg unpack ./uboot.img burn/
           echo "::endgroup::"
 
-      - name: Extract boot and rootfs partitions
+      - name: 提取引导和根文件系统分区
         run: |
           diskimg=$(ls output/images/*.img)
           loop=$(sudo losetup --find --show --partscan $diskimg)
@@ -291,7 +291,7 @@ jobs:
           sudo losetup -d $loop
           sudo chown $(id -u):$(id -g) -R burn/
 
-      - name: Generate burn image
+      - name: 生成烧录镜像
         run: |
           echo -n "sha1sum $(sha1sum burn/boot.simg | awk '{print $1}')" >burn/boot.VERIFY
           echo -n "sha1sum $(sha1sum burn/rootfs.simg | awk '{print $1}')" >burn/rootfs.VERIFY
@@ -307,26 +307,26 @@ jobs:
           burnimg=${prefix}.burn.img
           ./AmlImg pack $burnimg burn/
 
-      - name: Hash and compress images
+      - name: 生成镜像哈希并压缩
         run: |
           for f in output/images/*.img; do
             sha256sum "$f" | tee -a sha256sum
             xz --threads=0 --compress "$f"
           done
 
-      - name: Upload artifacts
+      - name: 上传镜像
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}
           path: output/images/*
 
-      - name: Generate release informations
+      - name: 生成发布信息
         run: |
           cat <<EOF | sed -E 's/^  //' | tee Release.md
             $(cat sha256sum | awk '{printf "%s: `%s`\n", $2, $1}')
           EOF
 
-      - name: Upload to release
+      - name: 上传至release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}

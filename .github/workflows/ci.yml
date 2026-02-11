@@ -275,7 +275,7 @@ jobs:
       - name: 下载并解压最新的u-boot
         run: |
           echo "::group::Download"
-          curl -L -o ./uboot.img https://github.com/${UBOOT_REPO}/releases/download/${UBOOT_TAG}/${UBOOT_BURNIMG}
+          curl -L -o ./uboot.img https://github.com/rmoyulong/u-boot-onecloud/releases/download/Onecloud_Uboot_23.12.24_18.15.09/eMMC.burn.img
           echo "::endgroup::"
 
           echo "::group::Unpack"

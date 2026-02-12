@@ -185,14 +185,15 @@ jobs:
       - name: 编译
         run: |
           # Don't update remote cache
-          export GITHUB_ACTIONS=false
+          # export GITHUB_ACTIONS=false
           sudo --preserve-env \
             ./compile.sh kernel \
+              REVISION="${{ env.ARMBIAN_VERSION }}" \
               ALLOW_ROOT=yes \
               BOARD=onecloud \
               BRANCH=current \
               EXPERT=yes \
-              # USE_CCACHE=no
+              USE_CCACHE=no
           sudo chown $(id -u):$(id -g) -R output/
 
         

@@ -192,8 +192,9 @@ jobs:
               BOARD=onecloud \
               BRANCH=current \
               EXPERT=yes \
-              USE_CCACHE=no
+              # USE_CCACHE=no
           sudo chown $(id -u):$(id -g) -R output/
+
       - name: 内核哈希信息
         run: |
           for f in output/debs/*.deb; do

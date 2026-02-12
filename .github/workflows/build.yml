@@ -28,10 +28,12 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       env: ${{ steps.get.outputs.env }}
+      
     steps:
       - id: get
-        name: Get repositories information
+        name: 获取仓库和Armbian信息
         run: |
+          sudo timedatectl set-timezone "Asia/Shanghai"
           TIME="$(curl https://api.github.com/repos/${SCRIPT_REPO}/actions/runs/${GITHUB_RUN_ID} | jq -r .created_at)"
           TAG="ci-$(date -d "${TIME}" -u +'%Y%m%d-%H%M%S-%Z')"
 
@@ -39,12 +41,18 @@ jobs:
           UBOOT_TAG=$(curl https://api.github.com/repos/${UBOOT_REPO}/releases/${UBOOT_RELEASE} | jq -r .tag_name)
           ARMBIAN_SHA=$(curl https://api.github.com/repos/${ARMBIAN_REPO}/commits/${ARMBIAN_REF} | jq -r .sha)
 
+          echo "Cloning Armbian repository..."
+          git clone https://github.com/armbian/os os
+
+          ARMBIAN_VERSION=$(cat os/stable.json | jq '.version' | sed "s/\"//g")
+
           cat <<EOF | sed -E 's/^  //' >>$GITHUB_ENV
             TIME=$TIME
             TAG=$TAG
             SCRIPT_SHA=$SCRIPT_SHA
             UBOOT_TAG=$UBOOT_TAG
             ARMBIAN_SHA=$ARMBIAN_SHA
+            ARMBIAN_VERSION=$ARMBIAN_VERSION
           EOF
           echo "env=$(cat $GITHUB_ENV | base64 -w 0)" >>$GITHUB_OUTPUT
 
@@ -95,7 +103,7 @@ jobs:
       - name: 生成发布信息
         run: |
           cat <<EOF | sed -E 's/^  //' | tee Release.md
-            $(date -d "$TIME" +'%Y-%m-%d %H:%M:%S %Z(%:z)')
+            稳定版 $(date -d "$TIME" +'%Y-%m-%d %H:%M:%S %Z(%:z)')
 
             # Sources
             Script: [${SCRIPT_REPO}@${SCRIPT_REF}](https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_REF}) ([\`${SCRIPT_SHA}\`](https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_SHA}))
@@ -113,7 +121,7 @@ jobs:
           echo "NAME=$(head --line=1 Release.md)" >>$GITHUB_ENV
           tail --line=+2 Release.md >Body.md
 
-      - name: 创建发布
+      - name: 建立版本信息
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
@@ -156,12 +164,12 @@ jobs:
           df -Th
 
       - name: 检查
-        uses: actions/checkout@v4
+        uses: actions/checkout@main
         with:
           repository: ${{ env.ARMBIAN_REPO }}
           ref: ${{ env.ARMBIAN_SHA }}
 
-      - name: "Apply patch ${{ env.PATCHES }}"
+      - name: "应用补丁 ${{ env.PATCHES }}"
         if: ${{ env.PATCHES }}
         run: |
           echo "::group::Download"
@@ -174,7 +182,7 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: 构建
+      - name: 编译
         run: |
           # Don't update remote cache
           export GITHUB_ACTIONS=false
@@ -182,26 +190,40 @@ jobs:
             ./compile.sh kernel \
               ALLOW_ROOT=yes \
               BOARD=onecloud \
-              BRANCH=${{ matrix.BRANCH }} \
+              BRANCH=current \
               EXPERT=yes \
               USE_CCACHE=no
           sudo chown $(id -u):$(id -g) -R output/
 
-      - name: 上传文件
-        uses: actions/upload-artifact@v4
+      - name: 内核哈希信息
+        run: |
+          for f in output/debs/*.deb; do
+            sha256sum "$f" | tee -a sha256sum
+          done
+          
+        - name: 上传资料
+        uses: actions/upload-artifact@main
         with:
-          name: debs-${{ matrix.BRANCH }}
+          name: kernel-current
           path: output/debs/*
 
-      - name: Upload to release
+      - name: 生成发布信息
+        run: |
+          cat <<EOF | sed -E 's/^  //' | tee Release.md
+            $(cat sha256sum | awk '{printf "%s: `%s`\n", $2, $1}')
+          EOF
+
+      - name: 上传至发布平台
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
+          append_body: true
+          body_path: Release.md
           files: |
             output/debs/*
 
   build:
-    name: Build ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}
+    name: 编译 ${{ matrix.RELEASE }}-current-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}
     needs: [ prepare, build-debs ]
     runs-on: ubuntu-22.04
     strategy:
@@ -211,37 +233,54 @@ jobs:
           - current
         RELEASE:
           # - focal # Ubuntu 20.04 LTS
-          # - jammy # Ubuntu 22.04 LTS
+          - jammy # Ubuntu 22.04 LTS
           - noble # Ubuntu 24.04 LTS
-          - oracular # Ubuntu 24.10
+          # - oracular # Ubuntu 24.10
           - plucky # Ubuntu 25.04
           # - buster # Debian 10
           # - bullseye # Debian 11
           - bookworm # Debian 12
           - trixie # Debian 13
-          - sid # Debian unstable
+          # - sid # Debian unstable
         TYPE:
           - minimal
           - cli
-          - desktop
-        include:
-          - TYPE: desktop
-            DESKTOP_ENVIRONMENT: xfce
-            DESKTOP_ENVIRONMENT_CONFIG_NAME: config_base
-            DESKTOP_APPGROUPS_SELECTED: ""
+          # - desktop
+
 
     steps:
-      - name: 导入环境
+      - name: 引入环境参数
         run: |
-          echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>$GITHUB_ENV
-
-      - name: Checkout
-        uses: actions/checkout@v4
+          echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>$GITHUB_ENV    
+          
+      - name: 检查服务器信息
+        run: |
+          sudo timedatectl set-timezone "Asia/Shanghai"
+          sudo apt update -y
+          sudo apt install android-sdk-libsparse-utils
+          echo "-------------------------------CPU信息-------------------------------------------"
+          echo
+          echo "CPU物理数量:$(cat /proc/cpuinfo| grep "physical id"| sort| uniq| wc -l)"
+          echo "CPU核心及版本信息:$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c)"
+          echo
+          echo "-------------------------------内存信息-------------------------------------------"
+          echo
+          echo "已安装内存详细信息："
+          sudo lshw -short -C memory | grep GiB
+          echo
+          echo "-------------------------------硬盘信息--------------------------------------------"
+          echo
+          echo "硬盘数量：$(ls /dev/sd* | grep -v [1-9] | wc -l)"
+          echo "硬盘详情："
+          df -Th
+        
+      - name: 检查信息
+        uses: actions/checkout@main
         with:
           repository: ${{ env.ARMBIAN_REPO }}
           ref: ${{ env.ARMBIAN_SHA }}
 
-      - name: "Apply patch ${{ env.PATCHES }}"
+      - name: "应用补丁 ${{ env.PATCHES }}"
         if: ${{ env.PATCHES }}
         run: |
           echo "::group::Download"
@@ -254,21 +293,22 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: 下载debs
-        uses: actions/download-artifact@v4
+      - name: 下载内核
+        uses: actions/download-artifact@main
         with:
-          name: debs-${{ matrix.BRANCH }}
+          name: kernel-current
           path: output/debs/
 
-      - name: 构建
+        - name: 编译
         run: |
           # Don't update remote cache
           export GITHUB_ACTIONS=false
           sudo --preserve-env \
             ./compile.sh build \
+              REVISION="${{ env.ARMBIAN_VERSION }}" \
               ALLOW_ROOT=yes \
               BOARD=onecloud \
-              BRANCH=${{ matrix.BRANCH }} \
+              BRANCH=current \
               RELEASE=${{ matrix.RELEASE }} \
               KERNEL_CONFIGURE=no \
               BUILD_MINIMAL=${{ matrix.TYPE == 'minimal' && 'yes' || 'no' }} \
@@ -283,11 +323,12 @@ jobs:
               COMPRESS_OUTPUTIMAGE=img
           sudo chown $(id -u):$(id -g) -R output/
 
+
       - name: 安装依赖项
         run: |
-          sudo apt install img2simg
+          sudo apt install img2simg android-sdk-libsparse-utils -y
 
-          ver="v0.3.1"
+          ver="v0.3.2"
           curl -L -o ./AmlImg https://github.com/hzyitc/AmlImg/releases/download/$ver/AmlImg_${ver}_linux_amd64
           chmod +x ./AmlImg
 
@@ -334,7 +375,7 @@ jobs:
           done
 
       - name: 上传镜像
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@main
         with:
           name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}
           path: output/images/*
@@ -346,7 +387,7 @@ jobs:
           EOF
 
       - name: 上传至release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@main
         with:
           tag_name: ${{ env.TAG }}
           append_body: true

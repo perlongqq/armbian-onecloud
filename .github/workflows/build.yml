@@ -195,13 +195,8 @@ jobs:
               # USE_CCACHE=no
           sudo chown $(id -u):$(id -g) -R output/
 
-      - name: 内核哈希信息
-        run: |
-          for f in output/debs/*.deb; do
-            sha256sum "$f" | tee -a sha256sum
-          done
-          
-        - name: 上传资料
+        
+      - name: 上传资料
         uses: actions/upload-artifact@main
         with:
           name: kernel-current

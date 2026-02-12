@@ -289,12 +289,12 @@ jobs:
           done
 
       - name: 下载内核
-        uses: actions/download-artifact@main
+        uses: actions/download-artifact@v4
         with:
           name: kernel-current
           path: output/debs/
 
-        - name: 编译
+      - name: 编译
         run: |
           # Don't update remote cache
           export GITHUB_ACTIONS=false
